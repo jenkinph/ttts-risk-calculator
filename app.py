@@ -1,7 +1,6 @@
-import json
+import joblib
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -20,28 +19,19 @@ st.write(
     "and donor live birth after laser therapy."
 )
 
-
 # ---------------------------------------------------------
-# Load models & feature lists
+# Load models
 # ---------------------------------------------------------
 @st.cache_resource
-def load_models_and_features():
+def load_models():
     base_path = Path(__file__).parent
-
     pod1_model = joblib.load(base_path / "pod1_xgb_platt.joblib")
     live_model = joblib.load(base_path / "live_birth_xgb_iso.joblib")
-
-    with open(base_path / "pod1_features.json", "r") as f:
-        pod1_features = json.load(f)
-
-    with open(base_path / "live_features_for_xgb.json", "r") as f:
-        live_features = json.load(f)
-
-    return pod1_model, live_model, pod1_features, live_features
+    return pod1_model, live_model
 
 
 try:
-    pod1_model, live_model, pod1_features, live_features = load_models_and_features()
+    pod1_model, live_model = load_models()
     st.success("Models loaded successfully.")
 except Exception as e:
     st.error(f"Error loading models: {e}")
@@ -49,6 +39,26 @@ except Exception as e:
 
 st.markdown("---")
 
+# ---------------------------------------------------------
+# Pull feature names directly from the fitted models
+# (CalibratedClassifierCV -> estimator_ is the Pipeline)
+# ---------------------------------------------------------
+try:
+    pod1_features = list(pod1_model.estimator_.feature_names_in_)
+    live_features = list(live_model.estimator_.feature_names_in_)
+except Exception as e:
+    st.error(f"Could not read feature names from models: {e}")
+    st.stop()
+
+# Group features into "binary" and "continuous" based on name
+def split_binary_continuous(features):
+    binary = [f for f in features if f.endswith("_bin")]
+    cont = [f for f in features if f not in binary]
+    return binary, cont
+
+
+pod1_binary_features, pod1_cont_features = split_binary_continuous(pod1_features)
+live_binary_features, live_cont_features = split_binary_continuous(live_features)
 
 # ---------------------------------------------------------
 # Helper: build DF and predict
@@ -63,65 +73,6 @@ def predict_with_model(model, feature_names, value_dict):
     prob = float(model.predict_proba(X)[0, 1])
     return prob
 
-
-# ---------------------------------------------------------
-# Feature groupings for the UI (binary vs continuous)
-# ---------------------------------------------------------
-
-# POD1 donor demise model
-pod1_binary_features = [
-    "pre UA aedf don_bin",
-    "pre UA rvdf don_bin",
-    "pre UA intermittent aedf don_bin",
-    "pre UA intermittent rvdf don_bin",
-    "pre_DV_abnormal_bin",
-]
-
-pod1_cont_features = [
-    "EFW Percent don",
-    "pre UA pi don",
-    "pre DV pi don",
-    "pre MCA psv don",
-    "pre MCA MoM don",
-    "pre MCA pi don",
-]
-
-# Live birth model
-live_binary_features = [
-    "pre UA aedf don_bin",
-    "pre UA rvdf don_bin",
-    "pre_DV_abnormal_bin",
-    "post_DV_abnormal_bin",
-]
-
-live_cont_features = [
-    "EFW Percent don",
-    "pre UA pi don",
-    "pre DV pi don",
-    "pre MCA psv don",
-    "pre MCA MoM don",
-    "pre MCA pi don",
-    "post UA pi don",
-    "post DV pi don",
-    "post MCA psv don",
-    "post MCA MoM don",
-    "post MCA pi don",
-]
-
-# Sanity check: union of our UI feature lists should match JSON lists.
-# (If not, model will still work but we might be missing an input.)
-# We don't stop the app here, just log to the page.
-if set(pod1_binary_features + pod1_cont_features) != set(pod1_features):
-    st.warning(
-        "POD1 feature list mismatch between app UI and saved feature list. "
-        "Model will still run, but please confirm feature names."
-    )
-
-if set(live_binary_features + live_cont_features) != set(live_features):
-    st.warning(
-        "Live-birth feature list mismatch between app UI and saved feature list. "
-        "Model will still run, but please confirm feature names."
-    )
 
 # ---------------------------------------------------------
 # Tabs for the two outcomes
