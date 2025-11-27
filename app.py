@@ -1,170 +1,196 @@
-import joblib
+import json
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-# ---------------------------------------------------------
-# App config
-# ---------------------------------------------------------
+# -----------------------------
+# Page config
+# -----------------------------
 st.set_page_config(
     page_title="TTTS Risk Calculator (Prototype)",
     layout="wide",
 )
 
-st.title("TTTS Risk Calculator (Prototype)")
-st.write(
-    "This app exposes the calibrated XGBoost models for predicting donor POD1 demise "
-    "and donor live birth after laser therapy."
+# -----------------------------
+# Load models + feature lists
+# -----------------------------
+@st.cache_resource(show_spinner=False)
+def load_models_and_features():
+    base = Path(__file__).parent
+
+    # Models
+    pod1_model = joblib.load(base / "pod1_xgb_platt.joblib")          # Calibrated XGBoost (Platt)
+    live_model = joblib.load(base / "live_birth_xgb_iso.joblib")      # Calibrated XGBoost (Isotonic)
+
+    # Feature lists (must match training)
+    with open(base / "pod1_features.json", "r") as f:
+        pod1_features = json.load(f)
+
+    with open(base / "live_features_for_xgb.json", "r") as f:
+        live_features = json.load(f)
+
+    return pod1_model, live_model, pod1_features, live_features
+
+
+pod1_model, live_model, pod1_features, live_features = load_models_and_features()
+
+st.markdown(
+    "## TTTS Risk Calculator (Prototype)\n\n"
+    "This app exposes the calibrated XGBoost models for predicting **donor POD1 demise** "
+    "and **donor live birth** after laser therapy.\n\n"
+    "> ⚠️ Research tool only – not for clinical decision making."
 )
 
-# ---------------------------------------------------------
-# Load models
-# ---------------------------------------------------------
-@st.cache_resource
-def load_models():
-    base_path = Path(__file__).parent
-    pod1_model = joblib.load(base_path / "pod1_xgb_platt.joblib")
-    live_model = joblib.load(base_path / "live_birth_xgb_iso.joblib")
-    return pod1_model, live_model
+st.success("Models loaded successfully.")
+
+# -----------------------------
+# Small helpers
+# -----------------------------
+def split_binary_continuous(feature_names):
+    """Very simple heuristic: *_bin treated as binary, everything else numeric."""
+    binary = [f for f in feature_names if f.lower().endswith("_bin")]
+    continuous = [f for f in feature_names if f not in binary]
+    return binary, continuous
 
 
-try:
-    pod1_model, live_model = load_models()
-    st.success("Models loaded successfully.")
-except Exception as e:
-    st.error(f"Error loading models: {e}")
-    st.stop()
-
-st.markdown("---")
-
-# ---------------------------------------------------------
-# Pull feature names directly from the fitted models
-# (CalibratedClassifierCV -> estimator_ is the Pipeline)
-# ---------------------------------------------------------
-try:
-    pod1_features = list(pod1_model.estimator_.feature_names_in_)
-    live_features = list(live_model.estimator_.feature_names_in_)
-except Exception as e:
-    st.error(f"Could not read feature names from models: {e}")
-    st.stop()
-
-# Group features into "binary" and "continuous" based on name
-def split_binary_continuous(features):
-    binary = [f for f in features if f.endswith("_bin")]
-    cont = [f for f in features if f not in binary]
-    return binary, cont
-
-
-pod1_binary_features, pod1_cont_features = split_binary_continuous(pod1_features)
-live_binary_features, live_cont_features = split_binary_continuous(live_features)
-
-# ---------------------------------------------------------
-# Helper: build DF and predict
-# ---------------------------------------------------------
-def predict_with_model(model, feature_names, value_dict):
+def predict_prob(model, feature_order, values_dict):
     """
-    value_dict: dict {feature_name: value}
-    feature_names: list of feature names in the correct order
+    Build a 1-row DataFrame in the correct column order and
+    return P(y=1) from the calibrated model.
     """
-    row = {name: float(value_dict.get(name, 0.0)) for name in feature_names}
-    X = pd.DataFrame([row], columns=feature_names)
-    prob = float(model.predict_proba(X)[0, 1])
-    return prob
+    row = {name: float(values_dict.get(name, 0.0)) for name in feature_order}
+    X = pd.DataFrame([row], columns=feature_order)
+    proba = model.predict_proba(X)[0, 1]
+    return float(proba)
 
 
-# ---------------------------------------------------------
-# Tabs for the two outcomes
-# ---------------------------------------------------------
-tab_pod1, tab_live = st.tabs(["🩸 Donor POD1 Demise", "👶 Donor Live Birth"])
+# -----------------------------
+# UI – two tabs
+# -----------------------------
+tab_pod1, tab_live = st.tabs(
+    ["🩸 Donor POD1 Demise", "👶 Donor Live Birth"]
+)
 
-
-# ---------------------------------------------------------
-# TAB 1: POD1 DONOR DEMISE
-# ---------------------------------------------------------
+# =============================
+# TAB 1 – POD1 DONOR DEMISE
+# =============================
 with tab_pod1:
     st.header("POD1 Donor Demise — Enter Inputs")
 
+    bin_pod1, cont_pod1 = split_binary_continuous(pod1_features)
+
     col_bin, col_cont = st.columns(2)
 
-    pod1_values = {}
+    pod1_inputs = {}
 
     with col_bin:
         st.subheader("Ultrasound Doppler Findings (Binary)")
-        st.caption("0 = No / Normal, 1 = Yes / Abnormal")
-
-        for f in pod1_binary_features:
-            pretty_label = f.replace("_", " ")
-            val = st.selectbox(
-                pretty_label,
+        st.caption("0 = No / normal, 1 = Yes / abnormal")
+        for f in bin_pod1:
+            label = f.replace("_", " ")
+            pod1_inputs[f] = st.selectbox(
+                label,
                 options=[0, 1],
-                index=0,
+                format_func=lambda x: "No (0)" if x == 0 else "Yes (1)",
                 key=f"pod1_bin_{f}",
             )
-            pod1_values[f] = val
 
     with col_cont:
         st.subheader("Continuous Variables")
-        for f in pod1_cont_features:
-            pretty_label = f.replace("_", " ")
-            val = st.number_input(
-                pretty_label,
+        for f in cont_pod1:
+            label = f.replace("_", " ")
+            pod1_inputs[f] = st.number_input(
+                label,
                 value=0.0,
-                step=0.01,
+                step=0.1,
+                format="%.2f",
                 key=f"pod1_cont_{f}",
             )
-            pod1_values[f] = val
 
-    if st.button("Predict POD1 Donor Demise Risk", key="btn_pod1"):
+    if st.button("Predict POD1 Donor Demise Risk", type="primary", key="btn_pod1"):
         try:
-            prob = predict_with_model(pod1_model, pod1_features, pod1_values)
-            st.success(f"Predicted probability of POD1 donor demise: {prob:.3f}")
-            st.write(f"Equivalent to **{prob*100:.1f}%** risk.")
+            prob = predict_prob(pod1_model, pod1_features, pod1_inputs)
+            st.subheader("Result")
+            st.metric(
+                "Estimated risk of POD1 donor demise",
+                f"{prob * 100:.1f} %",
+            )
+
+            # Optional simple risk stratification around the ~0.05 region
+            if prob < 0.03:
+                st.info("Model-estimated risk is **low** (<3%).")
+            elif prob < 0.10:
+                st.warning("Model-estimated risk is **intermediate** (3–10%).")
+            else:
+                st.error("Model-estimated risk is **high** (≥10%).")
+
         except Exception as e:
-            st.error(f"Error during POD1 prediction: {e}")
+            st.error(f"Error computing POD1 risk: {e}")
 
-
-# ---------------------------------------------------------
-# TAB 2: DONOR LIVE BIRTH
-# ---------------------------------------------------------
+# =============================
+# TAB 2 – DONOR LIVE BIRTH
+# =============================
 with tab_live:
     st.header("Donor Live Birth — Enter Inputs")
 
-    col_bin2, col_cont2 = st.columns(2)
+    bin_live, cont_live = split_binary_continuous(live_features)
 
-    live_values = {}
+    col_bin_l, col_cont_l = st.columns(2)
 
-    with col_bin2:
+    live_inputs = {}
+
+    with col_bin_l:
         st.subheader("Doppler Findings (Binary)")
-        st.caption("0 = No / Normal, 1 = Yes / Abnormal")
-
-        for f in live_binary_features:
-            pretty_label = f.replace("_", " ")
-            val = st.selectbox(
-                pretty_label,
+        st.caption("0 = No / normal, 1 = Yes / abnormal")
+        for f in bin_live:
+            label = f.replace("_", " ")
+            live_inputs[f] = st.selectbox(
+                label,
                 options=[0, 1],
-                index=0,
+                format_func=lambda x: "No (0)" if x == 0 else "Yes (1)",
                 key=f"live_bin_{f}",
             )
-            live_values[f] = val
 
-    with col_cont2:
+    with col_cont_l:
         st.subheader("Continuous Variables")
-        for f in live_cont_features:
-            pretty_label = f.replace("_", " ")
-            val = st.number_input(
-                pretty_label,
+        for f in cont_live:
+            label = f.replace("_", " ")
+            live_inputs[f] = st.number_input(
+                label,
                 value=0.0,
-                step=0.01,
+                step=0.1,
+                format="%.2f",
                 key=f"live_cont_{f}",
             )
-            live_values[f] = val
 
-    if st.button("Predict Donor Live Birth Probability", key="btn_live"):
+    if st.button("Predict Donor Live Birth Probability", type="primary", key="btn_live"):
         try:
-            prob = predict_with_model(live_model, live_features, live_values)
-            st.success(f"Predicted probability of donor live birth: {prob:.3f}")
-            st.write(f"Equivalent to **{prob*100:.1f}%** probability of live birth.")
+            prob = predict_prob(live_model, live_features, live_inputs)
+            st.subheader("Result")
+            st.metric(
+                "Estimated probability of donor live birth",
+                f"{prob * 100:.1f} %",
+            )
+
+            # Simple interpretation bands around 0.7 / 0.8 that we used in diagnostics
+            if prob < 0.5:
+                st.warning("Model-estimated probability is **<50%**.")
+            elif prob < 0.8:
+                st.info("Model-estimated probability is **moderate** (50–80%).")
+            else:
+                st.success("Model-estimated probability is **high** (≥80%).")
+
         except Exception as e:
-            st.error(f"Error during live-birth prediction: {e}")
+            st.error(f"Error computing live birth probability: {e}")
+
+# -----------------------------
+# Footer
+# -----------------------------
+st.markdown(
+    "---\n"
+    "This prototype is based on calibrated XGBoost models trained on the TTTS dataset. "
+    "**Do not** use for real-time clinical decisions."
+)
