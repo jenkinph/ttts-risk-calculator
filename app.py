@@ -1,26 +1,32 @@
 import json
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
-import joblib
 
 # ---------------------------------------------------------
-# Page config
+# App config
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="TTTS Risk Calculator",
+    page_title="TTTS Risk Calculator (Prototype)",
     layout="wide",
-    page_icon="🍼",
 )
 
+st.title("TTTS Risk Calculator (Prototype)")
+st.write(
+    "This app exposes the calibrated XGBoost models for predicting donor POD1 demise "
+    "and donor live birth after laser therapy."
+)
+
+
 # ---------------------------------------------------------
-# Load models + feature lists
+# Load models & feature lists
 # ---------------------------------------------------------
 @st.cache_resource
 def load_models_and_features():
-    base_path = Path(__file__).resolve().parent
+    base_path = Path(__file__).parent
 
     pod1_model = joblib.load(base_path / "pod1_xgb_platt.joblib")
     live_model = joblib.load(base_path / "live_birth_xgb_iso.joblib")
@@ -34,157 +40,180 @@ def load_models_and_features():
     return pod1_model, live_model, pod1_features, live_features
 
 
-pod1_model, live_model, pod1_features, live_features = load_models_and_features()
-
-# ---------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------
-def nice_label(feature_name: str) -> str:
-    """
-    Turn 'pre_DV_abnormal_bin' into 'pre DV abnormal (binary)' etc.
-    Just for display – does not affect model inputs.
-    """
-    label = feature_name.replace("_don", "").replace("_bin", " (binary)")
-    label = label.replace("_", " ")
-    return label
-
-
-def build_input_df(feature_list, values_dict):
-    """Return a 1-row DataFrame with columns in the correct feature order."""
-    row = {f: values_dict[f] for f in feature_list}
-    return pd.DataFrame([row], columns=feature_list)
-
-
-def format_prob(p: float) -> str:
-    return f"{p*100:.1f}%"
-
-
-# ---------------------------------------------------------
-# Main header
-# ---------------------------------------------------------
-st.title("TTTS Risk Calculator (Prototype)")
-st.write(
-    "This app exposes calibrated XGBoost models for predicting **donor POD1 demise** "
-    "and **donor live birth** after laser therapy in twin–twin transfusion syndrome. "
-    "It is a research prototype and **not** a clinical decision support tool."
-)
-
-st.success("Models loaded successfully.")
-
-# Optional: technical info in an expander
-with st.expander("Show model feature lists (for reference)", expanded=False):
-    st.subheader("POD1 donor demise model features")
-    st.code(pod1_features, language="python")
-    st.subheader("Live birth model features")
-    st.code(live_features, language="python")
+try:
+    pod1_model, live_model, pod1_features, live_features = load_models_and_features()
+    st.success("Models loaded successfully.")
+except Exception as e:
+    st.error(f"Error loading models: {e}")
+    st.stop()
 
 st.markdown("---")
+
+
+# ---------------------------------------------------------
+# Helper: build DF and predict
+# ---------------------------------------------------------
+def predict_with_model(model, feature_names, value_dict):
+    """
+    value_dict: dict {feature_name: value}
+    feature_names: list of feature names in the correct order
+    """
+    row = {name: float(value_dict.get(name, 0.0)) for name in feature_names}
+    X = pd.DataFrame([row], columns=feature_names)
+    prob = float(model.predict_proba(X)[0, 1])
+    return prob
+
+
+# ---------------------------------------------------------
+# Feature groupings for the UI (binary vs continuous)
+# ---------------------------------------------------------
+
+# POD1 donor demise model
+pod1_binary_features = [
+    "pre UA aedf don_bin",
+    "pre UA rvdf don_bin",
+    "pre UA intermittent aedf don_bin",
+    "pre UA intermittent rvdf don_bin",
+    "pre_DV_abnormal_bin",
+]
+
+pod1_cont_features = [
+    "EFW Percent don",
+    "pre UA pi don",
+    "pre DV pi don",
+    "pre MCA psv don",
+    "pre MCA MoM don",
+    "pre MCA pi don",
+]
+
+# Live birth model
+live_binary_features = [
+    "pre UA aedf don_bin",
+    "pre UA rvdf don_bin",
+    "pre_DV_abnormal_bin",
+    "post_DV_abnormal_bin",
+]
+
+live_cont_features = [
+    "EFW Percent don",
+    "pre UA pi don",
+    "pre DV pi don",
+    "pre MCA psv don",
+    "pre MCA MoM don",
+    "pre MCA pi don",
+    "post UA pi don",
+    "post DV pi don",
+    "post MCA psv don",
+    "post MCA MoM don",
+    "post MCA pi don",
+]
+
+# Sanity check: union of our UI feature lists should match JSON lists.
+# (If not, model will still work but we might be missing an input.)
+# We don't stop the app here, just log to the page.
+if set(pod1_binary_features + pod1_cont_features) != set(pod1_features):
+    st.warning(
+        "POD1 feature list mismatch between app UI and saved feature list. "
+        "Model will still run, but please confirm feature names."
+    )
+
+if set(live_binary_features + live_cont_features) != set(live_features):
+    st.warning(
+        "Live-birth feature list mismatch between app UI and saved feature list. "
+        "Model will still run, but please confirm feature names."
+    )
 
 # ---------------------------------------------------------
 # Tabs for the two outcomes
 # ---------------------------------------------------------
-tab_pod1, tab_live = st.tabs(
-    ["🩸 Donor POD1 Demise", "👶 Donor Live Birth"]
-)
+tab_pod1, tab_live = st.tabs(["🩸 Donor POD1 Demise", "👶 Donor Live Birth"])
 
-# =========================================================
-# TAB 1 – POD1 Donor Demise
-# =========================================================
+
+# ---------------------------------------------------------
+# TAB 1: POD1 DONOR DEMISE
+# ---------------------------------------------------------
 with tab_pod1:
     st.header("POD1 Donor Demise — Enter Inputs")
 
-    # Split features into binary vs continuous for UI
-    pod1_bin_feats = [f for f in pod1_features if f.endswith("_bin")]
-    pod1_cont_feats = [f for f in pod1_features if not f.endswith("_bin")]
-
     col_bin, col_cont = st.columns(2)
 
-    pod1_inputs = {}
+    pod1_values = {}
 
     with col_bin:
         st.subheader("Ultrasound Doppler Findings (Binary)")
-        for f in pod1_bin_feats:
-            pod1_inputs[f] = st.selectbox(
-                nice_label(f),
+        st.caption("0 = No / Normal, 1 = Yes / Abnormal")
+
+        for f in pod1_binary_features:
+            pretty_label = f.replace("_", " ")
+            val = st.selectbox(
+                pretty_label,
                 options=[0, 1],
                 index=0,
                 key=f"pod1_bin_{f}",
-                help="0 = absent/normal, 1 = present/abnormal",
             )
+            pod1_values[f] = val
 
     with col_cont:
         st.subheader("Continuous Variables")
-        for f in pod1_cont_feats:
-            pod1_inputs[f] = st.number_input(
-                nice_label(f),
+        for f in pod1_cont_features:
+            pretty_label = f.replace("_", " ")
+            val = st.number_input(
+                pretty_label,
                 value=0.0,
-                step=0.1,
+                step=0.01,
                 key=f"pod1_cont_{f}",
             )
+            pod1_values[f] = val
 
-    st.markdown("")
-    if st.button("Predict POD1 Donor Demise Risk", key="pod1_predict"):
-        X = build_input_df(pod1_features, pod1_inputs)
-        prob = float(pod1_model.predict_proba(X)[0, 1])
+    if st.button("Predict POD1 Donor Demise Risk", key="btn_pod1"):
+        try:
+            prob = predict_with_model(pod1_model, pod1_features, pod1_values)
+            st.success(f"Predicted probability of POD1 donor demise: {prob:.3f}")
+            st.write(f"Equivalent to **{prob*100:.1f}%** risk.")
+        except Exception as e:
+            st.error(f"Error during POD1 prediction: {e}")
 
-        st.subheader("Prediction")
-        st.metric(
-            label="Estimated probability of POD1 donor demise",
-            value=format_prob(prob),
-        )
-        st.caption(
-            "Model: calibrated XGBoost with Platt (sigmoid) scaling. "
-            "Probabilities are approximate and intended for research use only."
-        )
 
-# =========================================================
-# TAB 2 – Donor Live Birth
-# =========================================================
+# ---------------------------------------------------------
+# TAB 2: DONOR LIVE BIRTH
+# ---------------------------------------------------------
 with tab_live:
     st.header("Donor Live Birth — Enter Inputs")
 
-    # Split features into binary vs continuous
-    live_bin_feats = [f for f in live_features if f.endswith("_bin")]
-    live_cont_feats = [f for f in live_features if not f.endswith("_bin")]
+    col_bin2, col_cont2 = st.columns(2)
 
-    col_bin_l, col_cont_l = st.columns(2)
+    live_values = {}
 
-    live_inputs = {}
-
-    with col_bin_l:
+    with col_bin2:
         st.subheader("Doppler Findings (Binary)")
-        if not live_bin_feats:
-            st.caption("No binary features in this model.")
-        for f in live_bin_feats:
-            live_inputs[f] = st.selectbox(
-                nice_label(f),
+        st.caption("0 = No / Normal, 1 = Yes / Abnormal")
+
+        for f in live_binary_features:
+            pretty_label = f.replace("_", " ")
+            val = st.selectbox(
+                pretty_label,
                 options=[0, 1],
                 index=0,
                 key=f"live_bin_{f}",
-                help="0 = absent/normal, 1 = present/abnormal",
             )
+            live_values[f] = val
 
-    with col_cont_l:
+    with col_cont2:
         st.subheader("Continuous Variables")
-        for f in live_cont_feats:
-            live_inputs[f] = st.number_input(
-                nice_label(f),
+        for f in live_cont_features:
+            pretty_label = f.replace("_", " ")
+            val = st.number_input(
+                pretty_label,
                 value=0.0,
-                step=0.1,
+                step=0.01,
                 key=f"live_cont_{f}",
             )
+            live_values[f] = val
 
-    st.markdown("")
-    if st.button("Predict Donor Live Birth Probability", key="live_predict"):
-        X_live = build_input_df(live_features, live_inputs)
-        prob_live = float(live_model.predict_proba(X_live)[0, 1])
-
-        st.subheader("Prediction")
-        st.metric(
-            label="Estimated probability of donor live birth",
-            value=format_prob(prob_live),
-        )
-        st.caption(
-            "Model: calibrated XGBoost with isotonic regression. "
-            "Probabilities are approximate and intended for research use only."
-        )
+    if st.button("Predict Donor Live Birth Probability", key="btn_live"):
+        try:
+            prob = predict_with_model(live_model, live_features, live_values)
+            st.success(f"Predicted probability of donor live birth: {prob:.3f}")
+            st.write(f"Equivalent to **{prob*100:.1f}%** probability of live birth.")
+        except Exception as e:
+            st.error(f"Error during live-birth prediction: {e}")
