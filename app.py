@@ -49,9 +49,10 @@ def nice_label(feature_name: str) -> str:
     return label
 
 
-def build_input_vector(feature_list, values_dict):
-    """Return 2D numpy array [[x1, x2, ...]] in the correct feature order."""
-    return np.array([[values_dict[f] for f in feature_list]], dtype=float)
+def build_input_df(feature_list, values_dict):
+    """Return a 1-row DataFrame with columns in the correct feature order."""
+    row = {f: values_dict[f] for f in feature_list}
+    return pd.DataFrame([row], columns=feature_list)
 
 
 def format_prob(p: float) -> str:
@@ -80,12 +81,14 @@ with st.expander("Show model feature lists (for reference)", expanded=False):
 # Optional: smoke test expander
 with st.expander("Smoke test / debug"):
     if st.button("Run smoke test"):
-        pod1_vec = np.zeros((1, len(pod1_features)))
-        live_vec = np.zeros((1, len(live_features)))
-        pod1_prob = pod1_model.predict_proba(pod1_vec)[0, 1]
-        live_prob = live_model.predict_proba(live_vec)[0, 1]
-        st.write("POD1 model dummy probability:", float(pod1_prob))
-        st.write("Live birth model dummy probability:", float(live_prob))
+        # All-zero inputs, but passed as DataFrames with proper columns
+        pod1_df = pd.DataFrame([ {f: 0.0 for f in pod1_features} ], columns=pod1_features)
+        live_df = pd.DataFrame([ {f: 0.0 for f in live_features} ], columns=live_features)
+
+        pod1_prob = float(pod1_model.predict_proba(pod1_df)[0, 1])
+        live_prob = float(live_model.predict_proba(live_df)[0, 1])
+        st.write("POD1 model dummy probability:", pod1_prob)
+        st.write("Live birth model dummy probability:", live_prob)
 
 st.markdown("---")
 
@@ -133,7 +136,7 @@ with tab_pod1:
 
     st.markdown("")
     if st.button("Predict POD1 Donor Demise Risk", key="pod1_predict"):
-        X = build_input_vector(pod1_features, pod1_inputs)
+        X = build_input_df(pod1_features, pod1_inputs)
         prob = float(pod1_model.predict_proba(X)[0, 1])
 
         st.subheader("Prediction")
@@ -152,7 +155,7 @@ with tab_pod1:
 with tab_live:
     st.header("Donor Live Birth — Enter Inputs")
 
-    # Same logic: split into binary vs continuous
+    # Split features into binary vs continuous
     live_bin_feats = [f for f in live_features if f.endswith("_bin")]
     live_cont_feats = [f for f in live_features if not f.endswith("_bin")]
 
@@ -185,7 +188,7 @@ with tab_live:
 
     st.markdown("")
     if st.button("Predict Donor Live Birth Probability", key="live_predict"):
-        X_live = build_input_vector(live_features, live_inputs)
+        X_live = build_input_df(live_features, live_inputs)
         prob_live = float(live_model.predict_proba(X_live)[0, 1])
 
         st.subheader("Prediction")
