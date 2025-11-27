@@ -117,6 +117,7 @@ def build_pod1_inputs():
     st.subheader("Enter donor ultrasound and Doppler values (pre and post laser)")
     cols = st.columns(2)
     values = {}
+    prefix = "pod1_"  # unique key prefix for this tab
 
     # Left column
     with cols[0]:
@@ -126,12 +127,23 @@ def build_pod1_inputs():
             max_value=100.0,
             value=50.0,
             step=1.0,
+            key=prefix + "EFW_Percent_don",
         )
         values["pre UA pi don"] = st.number_input(
-            POD1_LABELS["pre UA pi don"], min_value=0.0, max_value=4.0, value=1.2, step=0.01
+            POD1_LABELS["pre UA pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=1.2,
+            step=0.01,
+            key=prefix + "pre_UA_pi_don",
         )
         values["pre DV pi don"] = st.number_input(
-            POD1_LABELS["pre DV pi don"], min_value=0.0, max_value=4.0, value=0.6, step=0.01
+            POD1_LABELS["pre DV pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=0.6,
+            step=0.01,
+            key=prefix + "pre_DV_pi_don",
         )
         values["pre MCA psv don"] = st.number_input(
             POD1_LABELS["pre MCA psv don"],
@@ -139,18 +151,39 @@ def build_pod1_inputs():
             max_value=80.0,
             value=30.0,
             step=0.5,
+            key=prefix + "pre_MCA_psv_don",
         )
         values["pre MCA MoM don"] = st.number_input(
-            POD1_LABELS["pre MCA MoM don"], min_value=0.0, max_value=3.0, value=1.0, step=0.01
+            POD1_LABELS["pre MCA MoM don"],
+            min_value=0.0,
+            max_value=3.0,
+            value=1.0,
+            step=0.01,
+            key=prefix + "pre_MCA_MoM_don",
         )
         values["pre MCA pi don"] = st.number_input(
-            POD1_LABELS["pre MCA pi don"], min_value=0.0, max_value=4.0, value=1.6, step=0.01
+            POD1_LABELS["pre MCA pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=1.6,
+            step=0.01,
+            key=prefix + "pre_MCA_pi_don",
         )
         values["post UA pi don"] = st.number_input(
-            POD1_LABELS["post UA pi don"], min_value=0.0, max_value=4.0, value=1.0, step=0.01
+            POD1_LABELS["post UA pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=1.0,
+            step=0.01,
+            key=prefix + "post_UA_pi_don",
         )
         values["post DV pi don"] = st.number_input(
-            POD1_LABELS["post DV pi don"], min_value=0.0, max_value=4.0, value=0.6, step=0.01
+            POD1_LABELS["post DV pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=0.6,
+            step=0.01,
+            key=prefix + "post_DV_pi_don",
         )
 
     # Right column
@@ -161,15 +194,31 @@ def build_pod1_inputs():
             max_value=80.0,
             value=28.0,
             step=0.5,
+            key=prefix + "post_MCA_psv_don",
         )
         values["post MCA MoM don"] = st.number_input(
-            POD1_LABELS["post MCA MoM don"], min_value=0.0, max_value=3.0, value=1.0, step=0.01
+            POD1_LABELS["post MCA MoM don"],
+            min_value=0.0,
+            max_value=3.0,
+            value=1.0,
+            step=0.01,
+            key=prefix + "post_MCA_MoM_don",
         )
         values["post MCA pi don"] = st.number_input(
-            POD1_LABELS["post MCA pi don"], min_value=0.0, max_value=4.0, value=1.4, step=0.01
+            POD1_LABELS["post MCA pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=1.4,
+            step=0.01,
+            key=prefix + "post_MCA_pi_don",
         )
         values["delta_DV_pi_don"] = st.number_input(
-            POD1_LABELS["delta_DV_pi_don"], min_value=-3.0, max_value=3.0, value=0.0, step=0.01
+            POD1_LABELS["delta_DV_pi_don"],
+            min_value=-3.0,
+            max_value=3.0,
+            value=0.0,
+            step=0.01,
+            key=prefix + "delta_DV_pi_don",
         )
         values["delta_MCA_psv_don"] = st.number_input(
             POD1_LABELS["delta_MCA_psv_don"],
@@ -177,6 +226,7 @@ def build_pod1_inputs():
             max_value=50.0,
             value=-2.0,
             step=0.5,
+            key=prefix + "delta_MCA_psv_don",
         )
         values["delta_MCA_MoM_don"] = st.number_input(
             POD1_LABELS["delta_MCA_MoM_don"],
@@ -184,6 +234,7 @@ def build_pod1_inputs():
             max_value=3.0,
             value=0.0,
             step=0.01,
+            key=prefix + "delta_MCA_MoM_don",
         )
         values["delta_MCA_pi_don"] = st.number_input(
             POD1_LABELS["delta_MCA_pi_don"],
@@ -191,6 +242,7 @@ def build_pod1_inputs():
             max_value=3.0,
             value=0.0,
             step=0.01,
+            key=prefix + "delta_MCA_pi_don",
         )
 
     # Build DataFrame in correct feature order
@@ -203,6 +255,7 @@ def build_live_inputs():
     st.subheader("Enter donor findings before laser therapy")
     cols = st.columns(2)
     values = {}
+    prefix = "live_"  # unique key prefix for this tab
 
     with cols[0]:
         values["EFW Percent don"] = st.number_input(
@@ -211,6 +264,7 @@ def build_live_inputs():
             max_value=100.0,
             value=20.0,
             step=1.0,
+            key=prefix + "EFW_Percent_don",
         )
 
         # Binary Doppler flags as selectboxes
@@ -226,13 +280,24 @@ def build_live_inputs():
                 options=[0, 1],
                 index=0,
                 format_func=lambda x: "No (0)" if x == 0 else "Yes (1)",
+                key=prefix + f,
             )
 
         values["pre UA pi don"] = st.number_input(
-            LIVE_LABELS["pre UA pi don"], min_value=0.0, max_value=4.0, value=1.4, step=0.01
+            LIVE_LABELS["pre UA pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=1.4,
+            step=0.01,
+            key=prefix + "pre_UA_pi_don",
         )
         values["pre DV pi don"] = st.number_input(
-            LIVE_LABELS["pre DV pi don"], min_value=0.0, max_value=4.0, value=0.7, step=0.01
+            LIVE_LABELS["pre DV pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=0.7,
+            step=0.01,
+            key=prefix + "pre_DV_pi_don",
         )
 
     with cols[1]:
@@ -242,12 +307,23 @@ def build_live_inputs():
             max_value=80.0,
             value=30.0,
             step=0.5,
+            key=prefix + "pre_MCA_psv_don",
         )
         values["pre MCA MoM don"] = st.number_input(
-            LIVE_LABELS["pre MCA MoM don"], min_value=0.0, max_value=3.0, value=1.0, step=0.01
+            LIVE_LABELS["pre MCA MoM don"],
+            min_value=0.0,
+            max_value=3.0,
+            value=1.0,
+            step=0.01,
+            key=prefix + "pre_MCA_MoM_don",
         )
         values["pre MCA pi don"] = st.number_input(
-            LIVE_LABELS["pre MCA pi don"], min_value=0.0, max_value=4.0, value=1.6, step=0.01
+            LIVE_LABELS["pre MCA pi don"],
+            min_value=0.0,
+            max_value=4.0,
+            value=1.6,
+            step=0.01,
+            key=prefix + "pre_MCA_pi_don",
         )
         values["delta_DV_pi_don"] = st.number_input(
             LIVE_LABELS["delta_DV_pi_don"],
@@ -255,6 +331,7 @@ def build_live_inputs():
             max_value=3.0,
             value=0.0,
             step=0.01,
+            key=prefix + "delta_DV_pi_don",
         )
         values["delta_MCA_psv_don"] = st.number_input(
             LIVE_LABELS["delta_MCA_psv_don"],
@@ -262,6 +339,7 @@ def build_live_inputs():
             max_value=50.0,
             value=-2.0,
             step=0.5,
+            key=prefix + "delta_MCA_psv_don",
         )
         values["delta_MCA_MoM_don"] = st.number_input(
             LIVE_LABELS["delta_MCA_MoM_don"],
@@ -269,6 +347,7 @@ def build_live_inputs():
             max_value=3.0,
             value=0.0,
             step=0.01,
+            key=prefix + "delta_MCA_MoM_don",
         )
         values["delta_MCA_pi_don"] = st.number_input(
             LIVE_LABELS["delta_MCA_pi_don"],
@@ -276,6 +355,7 @@ def build_live_inputs():
             max_value=3.0,
             value=0.0,
             step=0.01,
+            key=prefix + "delta_MCA_pi_don",
         )
 
     X = pd.DataFrame([[values[f] for f in LIVE_FEATURES]], columns=LIVE_FEATURES)
