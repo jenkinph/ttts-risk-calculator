@@ -39,3 +39,17 @@ typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
 xgboost==3.1.2
+streamlit==1.31.0
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+xgboost==1.7.6
+joblib==1.4.2
+
+# Optional but safe dependencies Streamlit uses
+altair==5.2.0
+protobuf==4.25.3
+pillow==10.2.0
+requests==2.31.0
+python-dateutil==2.9.0.post0
+tzdata==2024.1
