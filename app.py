@@ -78,18 +78,6 @@ with st.expander("Show model feature lists (for reference)", expanded=False):
     st.subheader("Live birth model features")
     st.code(live_features, language="python")
 
-# Optional: smoke test expander
-with st.expander("Smoke test / debug"):
-    if st.button("Run smoke test"):
-        # All-zero inputs, but passed as DataFrames with proper columns
-        pod1_df = pd.DataFrame([ {f: 0.0 for f in pod1_features} ], columns=pod1_features)
-        live_df = pd.DataFrame([ {f: 0.0 for f in live_features} ], columns=live_features)
-
-        pod1_prob = float(pod1_model.predict_proba(pod1_df)[0, 1])
-        live_prob = float(live_model.predict_proba(live_df)[0, 1])
-        st.write("POD1 model dummy probability:", pod1_prob)
-        st.write("Live birth model dummy probability:", live_prob)
-
 st.markdown("---")
 
 # ---------------------------------------------------------
