@@ -100,20 +100,22 @@ with tab1:
 with tab2:
     st.header("Donor Live Birth — Enter Inputs")
 
+    # Explicit classification
+    LIVE_BINARY = [f for f in live_features if f.endswith("_bin")]
+    LIVE_CONT   = [f for f in live_features if f not in LIVE_BINARY]
+
     col1, col2 = st.columns(2)
 
     inputs_live = {}
     with col1:
-        st.subheader("Doppler Findings")
-        for f in live_features:
-            if "bin" in f:
-                inputs_live[f] = st.selectbox(f, [0,1])
+        st.subheader("Doppler Findings (Binary)")
+        for f in LIVE_BINARY:
+            inputs_live[f] = st.selectbox(f, [0, 1], key=f"bin_{f}")
 
     with col2:
         st.subheader("Continuous Variables")
-        for f in live_features:
-            if "bin" not in f:
-                inputs_live[f] = st.number_input(f, value=0.0)
+        for f in LIVE_CONT:
+            inputs_live[f] = st.number_input(f, value=0.0, key=f"cont_{f}")
 
     if st.button("Predict Donor Live Birth Probability"):
         p = predict(live_model, live_features, inputs_live)
@@ -131,4 +133,3 @@ with tab2:
         st.markdown(f"""
         ## **Probability: {p:.3f} ({icon} {label})**
         """)
-        st.info("Note: This model is well-calibrated and performs best between predicted probabilities of 0.5 and 0.9.")
