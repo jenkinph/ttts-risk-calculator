@@ -1,408 +1,362 @@
-import json
-from pathlib import Path
-
-import numpy as np
 import streamlit as st
 import joblib
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+# ---------------------------------------------------------------------
+# Paths & model loading
+# ---------------------------------------------------------------------
+BASE_PATH = Path(__file__).parent
 
 
-# -----------------------------------------------------------------------------
-# Load models and feature lists
-# -----------------------------------------------------------------------------
 @st.cache_resource
 def load_models():
-    base_path = Path(__file__).resolve().parent
-    pod1_model = joblib.load(base_path / "pod1_xgb_platt.joblib")
-    live_model = joblib.load(base_path / "live_birth_xgb_iso.joblib")
+    """Load calibrated XGBoost models from .joblib files."""
+    pod1_model = joblib.load(BASE_PATH / "pod1_xgb_platt.joblib")
+    live_model = joblib.load(BASE_PATH / "live_birth_xgb_iso.joblib")
     return pod1_model, live_model
 
 
-@st.cache_data
-def load_feature_lists():
-    base_path = Path(__file__).resolve().parent
-    with open(base_path / "pod1_features.json", "r") as f:
-        pod1_features = json.load(f)
-    with open(base_path / "live_features_for_xgb.json", "r") as f:
-        live_features = json.load(f)
-    return pod1_features, live_features
-
-
 pod1_model, live_model = load_models()
-pod1_features, live_features = load_feature_lists()
 
-# -----------------------------------------------------------------------------
-# Human-friendly metadata for each feature
-# -----------------------------------------------------------------------------
-# Note: bounds are deliberately generous but still physiologically reasonable.
-FEATURE_META = {
-    # Shared / general
-    "EFW Percent don": dict(
-        label="Estimated fetal weight percentile (donor)",
-        group="General",
-        min=0.0,
-        max=100.0,
-        step=1.0,
-        default=50.0,
-        help="Estimated fetal weight percentile for the donor fetus (0–100).",
-        type="continuous",
-    ),
+# ---------------------------------------------------------------------
+# Feature definitions – MUST MATCH TRAINED MODELS
+# ---------------------------------------------------------------------
 
-    # Binary Doppler findings (live-birth model)
-    "pre UA aedf don_bin": dict(
-        label="Pre-laser UA absent end-diastolic flow (AEDF)",
-        group="Pre-laser Doppler (binary)",
-        type="binary",
-        default=0,
-        help="1 if umbilical artery shows persistent absent end-diastolic flow before laser; 0 if not.",
-    ),
-    "pre UA rvdf don_bin": dict(
-        label="Pre-laser UA reversed end-diastolic flow (REDF)",
-        group="Pre-laser Doppler (binary)",
-        type="binary",
-        default=0,
-        help="1 if umbilical artery shows persistent reversed end-diastolic flow before laser; 0 if not.",
-    ),
-    "pre UA intermittent aedf don_bin": dict(
-        label="Pre-laser UA intermittent AEDF",
-        group="Pre-laser Doppler (binary)",
-        type="binary",
-        default=0,
-        help="1 if AEDF is intermittent before laser; 0 if not.",
-    ),
-    "pre UA intermittent rvdf don_bin": dict(
-        label="Pre-laser UA intermittent REDF",
-        group="Pre-laser Doppler (binary)",
-        type="binary",
-        default=0,
-        help="1 if REDF is intermittent before laser; 0 if not.",
-    ),
-    "pre_DV_abnormal_bin": dict(
-        label="Pre-laser abnormal DV waveform",
-        group="Pre-laser Doppler (binary)",
-        type="binary",
-        default=0,
-        help="1 if ductus venosus waveform is abnormal (e.g., absent/reversed a-wave) before laser; 0 if normal.",
-    ),
+# POD1 donor demise model features (15)
+POD1_FEATURES = [
+    "EFW Percent don",
+    "pre UA pi don",
+    "pre DV pi don",
+    "pre MCA psv don",
+    "pre MCA MoM don",
+    "pre MCA pi don",
+    "post UA pi don",
+    "post DV pi don",
+    "post MCA psv don",
+    "post MCA MoM don",
+    "post MCA pi don",
+    "delta_DV_pi_don",
+    "delta_MCA_psv_don",
+    "delta_MCA_MoM_don",
+    "delta_MCA_pi_don",
+]
 
-    # Pre-laser continuous indices
-    "pre UA pi don": dict(
-        label="Pre-laser UA PI (donor)",
-        group="Pre-laser Doppler indices",
-        min=0.0,
-        max=5.0,
-        step=0.1,
-        default=1.0,
-        help="Umbilical artery pulsatility index for the donor fetus before laser.",
-        type="continuous",
-    ),
-    "pre DV pi don": dict(
-        label="Pre-laser DV PI (donor)",
-        group="Pre-laser Doppler indices",
-        min=0.0,
-        max=3.0,
-        step=0.05,
-        default=0.5,
-        help="Ductus venosus pulsatility index for the donor fetus before laser.",
-        type="continuous",
-    ),
-    "pre MCA psv don": dict(
-        label="Pre-laser MCA peak systolic velocity (cm/s)",
-        group="Pre-laser Doppler indices",
-        min=0.0,
-        max=100.0,
-        step=1.0,
-        default=30.0,
-        help="Middle cerebral artery peak systolic velocity before laser (cm/s).",
-        type="continuous",
-    ),
-    "pre MCA MoM don": dict(
-        label="Pre-laser MCA PSV MoM",
-        group="Pre-laser Doppler indices",
-        min=0.0,
-        max=3.0,
-        step=0.05,
-        default=1.0,
-        help="Multiple of the median (MoM) for MCA peak systolic velocity before laser.",
-        type="continuous",
-    ),
-    "pre MCA pi don": dict(
-        label="Pre-laser MCA PI (donor)",
-        group="Pre-laser Doppler indices",
-        min=0.0,
-        max=5.0,
-        step=0.1,
-        default=1.5,
-        help="Middle cerebral artery pulsatility index for the donor fetus before laser.",
-        type="continuous",
-    ),
+# Donor live-birth model features (15)
+LIVE_FEATURES = [
+    "EFW Percent don",
+    "pre UA aedf don_bin",
+    "pre UA rvdf don_bin",
+    "pre UA intermittent aedf don_bin",
+    "pre UA intermittent rvdf don_bin",
+    "pre_DV_abnormal_bin",
+    "pre UA pi don",
+    "pre DV pi don",
+    "pre MCA psv don",
+    "pre MCA MoM don",
+    "pre MCA pi don",
+    "delta_DV_pi_don",
+    "delta_MCA_psv_don",
+    "delta_MCA_MoM_don",
+    "delta_MCA_pi_don",
+]
 
-    # Post-laser continuous indices (POD1 demise model only)
-    "post UA pi don": dict(
-        label="Post-laser UA PI (donor)",
-        group="Post-laser Doppler indices",
-        min=0.0,
-        max=5.0,
-        step=0.1,
-        default=1.0,
-        help="Umbilical artery pulsatility index for the donor fetus after laser.",
-        type="continuous",
-    ),
-    "post DV pi don": dict(
-        label="Post-laser DV PI (donor)",
-        group="Post-laser Doppler indices",
-        min=0.0,
-        max=3.0,
-        step=0.05,
-        default=0.5,
-        help="Ductus venosus pulsatility index for the donor fetus after laser.",
-        type="continuous",
-    ),
-    "post MCA psv don": dict(
-        label="Post-laser MCA peak systolic velocity (cm/s)",
-        group="Post-laser Doppler indices",
-        min=0.0,
-        max=100.0,
-        step=1.0,
-        default=30.0,
-        help="Middle cerebral artery peak systolic velocity after laser (cm/s).",
-        type="continuous",
-    ),
-    "post MCA MoM don": dict(
-        label="Post-laser MCA PSV MoM",
-        group="Post-laser Doppler indices",
-        min=0.0,
-        max=3.0,
-        step=0.05,
-        default=1.0,
-        help="Multiple of the median (MoM) for MCA peak systolic velocity after laser.",
-        type="continuous",
-    ),
-    "post MCA pi don": dict(
-        label="Post-laser MCA PI (donor)",
-        group="Post-laser Doppler indices",
-        min=0.0,
-        max=5.0,
-        step=0.1,
-        default=1.5,
-        help="Middle cerebral artery pulsatility index for the donor fetus after laser.",
-        type="continuous",
-    ),
+# Human-readable labels for UI
+POD1_LABELS = {
+    "EFW Percent don": "Donor estimated fetal weight percentile",
+    "pre UA pi don": "Pre-laser donor umbilical artery PI",
+    "pre DV pi don": "Pre-laser donor ductus venosus PI",
+    "pre MCA psv don": "Pre-laser donor MCA peak systolic velocity (cm/s)",
+    "pre MCA MoM don": "Pre-laser donor MCA PSV MoM",
+    "pre MCA pi don": "Pre-laser donor MCA PI",
+    "post UA pi don": "Post-laser donor umbilical artery PI",
+    "post DV pi don": "Post-laser donor ductus venosus PI",
+    "post MCA psv don": "Post-laser donor MCA peak systolic velocity (cm/s)",
+    "post MCA MoM don": "Post-laser donor MCA PSV MoM",
+    "post MCA pi don": "Post-laser donor MCA PI",
+    "delta_DV_pi_don": "Change in donor DV PI (post – pre)",
+    "delta_MCA_psv_don": "Change in donor MCA PSV (post – pre, cm/s)",
+    "delta_MCA_MoM_don": "Change in donor MCA PSV MoM (post – pre)",
+    "delta_MCA_pi_don": "Change in donor MCA PI (post – pre)",
+}
 
-    # Delta features
-    "delta_DV_pi_don": dict(
-        label="Δ DV PI (post − pre)",
-        group="Change from pre- to post-laser",
-        min=-3.0,
-        max=3.0,
-        step=0.05,
-        default=0.0,
-        help="Change in ductus venosus PI (post-laser minus pre-laser).",
-        type="continuous",
-    ),
-    "delta_MCA_psv_don": dict(
-        label="Δ MCA PSV (post − pre, cm/s)",
-        group="Change from pre- to post-laser",
-        min=-50.0,
-        max=50.0,
-        step=1.0,
-        default=0.0,
-        help="Change in MCA peak systolic velocity (cm/s).",
-        type="continuous",
-    ),
-    "delta_MCA_MoM_don": dict(
-        label="Δ MCA PSV MoM (post − pre)",
-        group="Change from pre- to post-laser",
-        min=-3.0,
-        max=3.0,
-        step=0.05,
-        default=0.0,
-        help="Change in MCA PSV MoM (post minus pre).",
-        type="continuous",
-    ),
-    "delta_MCA_pi_don": dict(
-        label="Δ MCA PI (post − pre)",
-        group="Change from pre- to post-laser",
-        min=-3.0,
-        max=3.0,
-        step=0.05,
-        default=0.0,
-        help="Change in MCA PI (post minus pre).",
-        type="continuous",
-    ),
+LIVE_LABELS = {
+    "EFW Percent don": "Donor estimated fetal weight percentile",
+    "pre UA aedf don_bin": "Pre-laser donor UA absent/reversed EDF (0 = no, 1 = yes)",
+    "pre UA rvdf don_bin": "Pre-laser donor UA reversed flow (0 = no, 1 = yes)",
+    "pre UA intermittent aedf don_bin": "Pre-laser donor UA intermittent absent EDF (0/1)",
+    "pre UA intermittent rvdf don_bin": "Pre-laser donor UA intermittent reversed flow (0/1)",
+    "pre_DV_abnormal_bin": "Pre-laser donor DV abnormal (a-wave absent/reversed) (0/1)",
+    "pre UA pi don": "Pre-laser donor umbilical artery PI",
+    "pre DV pi don": "Pre-laser donor ductus venosus PI",
+    "pre MCA psv don": "Pre-laser donor MCA peak systolic velocity (cm/s)",
+    "pre MCA MoM don": "Pre-laser donor MCA PSV MoM",
+    "pre MCA pi don": "Pre-laser donor MCA PI",
+    "delta_DV_pi_don": "Change in donor DV PI (post – pre)",
+    "delta_MCA_psv_don": "Change in donor MCA PSV (post – pre, cm/s)",
+    "delta_MCA_MoM_don": "Change in donor MCA PSV MoM (post – pre)",
+    "delta_MCA_pi_don": "Change in donor MCA PI (post – pre)",
+}
+
+# Which live-birth features are binary flags
+LIVE_BINARY_FEATURES = {
+    "pre UA aedf don_bin",
+    "pre UA rvdf don_bin",
+    "pre UA intermittent aedf don_bin",
+    "pre UA intermittent rvdf don_bin",
+    "pre_DV_abnormal_bin",
 }
 
 
-# -----------------------------------------------------------------------------
-# Helper: render inputs for a model and return values as a dict
-# -----------------------------------------------------------------------------
-def render_feature_inputs(feature_names, outcome_label: str):
-    """
-    Render Streamlit widgets for all features in feature_names.
-    Returns a dict: {feature_name: value}.
-    """
+# ---------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------
+def build_pod1_inputs():
+    """Collect POD1 model inputs from the user."""
+    st.subheader("Enter donor ultrasound and Doppler values (pre and post laser)")
+    cols = st.columns(2)
     values = {}
-    current_group = None
 
-    for feat in feature_names:
-        meta = FEATURE_META.get(feat, {})
-        group = meta.get("group", None)
+    # Left column
+    with cols[0]:
+        values["EFW Percent don"] = st.number_input(
+            POD1_LABELS["EFW Percent don"],
+            min_value=0.0,
+            max_value=100.0,
+            value=50.0,
+            step=1.0,
+        )
+        values["pre UA pi don"] = st.number_input(
+            POD1_LABELS["pre UA pi don"], min_value=0.0, max_value=4.0, value=1.2, step=0.01
+        )
+        values["pre DV pi don"] = st.number_input(
+            POD1_LABELS["pre DV pi don"], min_value=0.0, max_value=4.0, value=0.6, step=0.01
+        )
+        values["pre MCA psv don"] = st.number_input(
+            POD1_LABELS["pre MCA psv don"],
+            min_value=0.0,
+            max_value=80.0,
+            value=30.0,
+            step=0.5,
+        )
+        values["pre MCA MoM don"] = st.number_input(
+            POD1_LABELS["pre MCA MoM don"], min_value=0.0, max_value=3.0, value=1.0, step=0.01
+        )
+        values["pre MCA pi don"] = st.number_input(
+            POD1_LABELS["pre MCA pi don"], min_value=0.0, max_value=4.0, value=1.6, step=0.01
+        )
+        values["post UA pi don"] = st.number_input(
+            POD1_LABELS["post UA pi don"], min_value=0.0, max_value=4.0, value=1.0, step=0.01
+        )
+        values["post DV pi don"] = st.number_input(
+            POD1_LABELS["post DV pi don"], min_value=0.0, max_value=4.0, value=0.6, step=0.01
+        )
 
-        if group and group != current_group:
-            st.subheader(group)
-            current_group = group
+    # Right column
+    with cols[1]:
+        values["post MCA psv don"] = st.number_input(
+            POD1_LABELS["post MCA psv don"],
+            min_value=0.0,
+            max_value=80.0,
+            value=28.0,
+            step=0.5,
+        )
+        values["post MCA MoM don"] = st.number_input(
+            POD1_LABELS["post MCA MoM don"], min_value=0.0, max_value=3.0, value=1.0, step=0.01
+        )
+        values["post MCA pi don"] = st.number_input(
+            POD1_LABELS["post MCA pi don"], min_value=0.0, max_value=4.0, value=1.4, step=0.01
+        )
+        values["delta_DV_pi_don"] = st.number_input(
+            POD1_LABELS["delta_DV_pi_don"], min_value=-3.0, max_value=3.0, value=0.0, step=0.01
+        )
+        values["delta_MCA_psv_don"] = st.number_input(
+            POD1_LABELS["delta_MCA_psv_don"],
+            min_value=-50.0,
+            max_value=50.0,
+            value=-2.0,
+            step=0.5,
+        )
+        values["delta_MCA_MoM_don"] = st.number_input(
+            POD1_LABELS["delta_MCA_MoM_don"],
+            min_value=-3.0,
+            max_value=3.0,
+            value=0.0,
+            step=0.01,
+        )
+        values["delta_MCA_pi_don"] = st.number_input(
+            POD1_LABELS["delta_MCA_pi_don"],
+            min_value=-3.0,
+            max_value=3.0,
+            value=0.0,
+            step=0.01,
+        )
 
-        ftype = meta.get("type", "continuous")
-        label = meta.get("label", feat)
-        help_text = meta.get("help", None)
+    # Build DataFrame in correct feature order
+    X = pd.DataFrame([[values[f] for f in POD1_FEATURES]], columns=POD1_FEATURES)
+    return X
 
-        if ftype == "binary":
-            # 0/1 with human labels
-            choice = st.selectbox(
-                label,
-                options=["No / normal (0)", "Yes / abnormal (1)"],
-                index=meta.get("default", 0),
-                help=help_text,
-                key=f"{outcome_label}_{feat}",
+
+def build_live_inputs():
+    """Collect live-birth model inputs from the user."""
+    st.subheader("Enter donor findings before laser therapy")
+    cols = st.columns(2)
+    values = {}
+
+    with cols[0]:
+        values["EFW Percent don"] = st.number_input(
+            LIVE_LABELS["EFW Percent don"],
+            min_value=0.0,
+            max_value=100.0,
+            value=20.0,
+            step=1.0,
+        )
+
+        # Binary Doppler flags as selectboxes
+        for f in [
+            "pre UA aedf don_bin",
+            "pre UA rvdf don_bin",
+            "pre UA intermittent aedf don_bin",
+            "pre UA intermittent rvdf don_bin",
+            "pre_DV_abnormal_bin",
+        ]:
+            values[f] = st.selectbox(
+                LIVE_LABELS[f],
+                options=[0, 1],
+                index=0,
+                format_func=lambda x: "No (0)" if x == 0 else "Yes (1)",
             )
-            value = 1 if "abnormal" in choice.lower() or "yes" in choice.lower() else 0
 
-        else:  # continuous
-            min_v = meta.get("min", 0.0)
-            max_v = meta.get("max", 10.0)
-            step = meta.get("step", 0.1)
-            default = meta.get("default", 0.0)
-            value = st.number_input(
-                label,
-                min_value=float(min_v),
-                max_value=float(max_v),
-                value=float(default),
-                step=float(step),
-                help=help_text,
-                key=f"{outcome_label}_{feat}",
+        values["pre UA pi don"] = st.number_input(
+            LIVE_LABELS["pre UA pi don"], min_value=0.0, max_value=4.0, value=1.4, step=0.01
+        )
+        values["pre DV pi don"] = st.number_input(
+            LIVE_LABELS["pre DV pi don"], min_value=0.0, max_value=4.0, value=0.7, step=0.01
+        )
+
+    with cols[1]:
+        values["pre MCA psv don"] = st.number_input(
+            LIVE_LABELS["pre MCA psv don"],
+            min_value=0.0,
+            max_value=80.0,
+            value=30.0,
+            step=0.5,
+        )
+        values["pre MCA MoM don"] = st.number_input(
+            LIVE_LABELS["pre MCA MoM don"], min_value=0.0, max_value=3.0, value=1.0, step=0.01
+        )
+        values["pre MCA pi don"] = st.number_input(
+            LIVE_LABELS["pre MCA pi don"], min_value=0.0, max_value=4.0, value=1.6, step=0.01
+        )
+        values["delta_DV_pi_don"] = st.number_input(
+            LIVE_LABELS["delta_DV_pi_don"],
+            min_value=-3.0,
+            max_value=3.0,
+            value=0.0,
+            step=0.01,
+        )
+        values["delta_MCA_psv_don"] = st.number_input(
+            LIVE_LABELS["delta_MCA_psv_don"],
+            min_value=-50.0,
+            max_value=50.0,
+            value=-2.0,
+            step=0.5,
+        )
+        values["delta_MCA_MoM_don"] = st.number_input(
+            LIVE_LABELS["delta_MCA_MoM_don"],
+            min_value=-3.0,
+            max_value=3.0,
+            value=0.0,
+            step=0.01,
+        )
+        values["delta_MCA_pi_don"] = st.number_input(
+            LIVE_LABELS["delta_MCA_pi_don"],
+            min_value=-3.0,
+            max_value=3.0,
+            value=0.0,
+            step=0.01,
+        )
+
+    X = pd.DataFrame([[values[f] for f in LIVE_FEATURES]], columns=LIVE_FEATURES)
+    return X
+
+
+def predict_probability(model, X: pd.DataFrame) -> float:
+    """Run model.predict_proba safely and return class-1 probability."""
+    # Sanity check: feature alignment
+    if hasattr(model, "feature_names_in_"):
+        model_feats = list(model.feature_names_in_)
+        if model_feats != list(X.columns):
+            st.error(
+                "Feature mismatch between app and model. "
+                "Please contact the developer."
             )
+            st.write("Model expects:", model_feats)
+            st.write("App is sending:", list(X.columns))
+            st.stop()
 
-        values[feat] = float(value)
-
-    return values
-
-
-def predict_probability(model, features, values_dict):
-    """Builds an input row in the model's feature order and returns P(event=1)."""
-    x = np.array([[values_dict[f] for f in features]], dtype=float)
-    prob = model.predict_proba(x)[0, 1]
-    return float(prob)
+    proba = model.predict_proba(X)[0, 1]
+    return float(proba)
 
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Streamlit layout
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="TTTS Donor Risk Calculator (Prototype)",
-    layout="wide",
-)
-
+# ---------------------------------------------------------------------
 st.title("TTTS Donor Risk Calculator (Prototype)")
 
 st.markdown(
     """
-This app exposes **research models** built to estimate:
+This prototype exposes calibrated XGBoost models for:
 
-- The probability of **donor POD1 demise** after laser therapy, and  
-- The probability of **donor live birth**.
+1. **Donor POD1 demise** after TTTS laser therapy  
+2. **Donor live birth**  
 
-> ⚠️ **Important:** This is a **prototype research tool**, not a clinical device.  
-> Predictions are based on a single institutional dataset and should **not** be used
-> for real-time clinical decision-making or patient counseling.
+⚠️ **Research tool only** – not for clinical decision-making.
 """
 )
 
-st.markdown(
-    """
-### How to use
+tab1, tab2 = st.tabs(["🩸 Donor POD1 demise", "👶 Donor live birth"])
 
-1. Choose the outcome tab (POD1 demise or live birth).  
-2. Enter the donor Doppler measurements.  
-3. Use **0 = normal / absent**, **1 = abnormal / present** for binary findings.  
-4. Review the predicted probability and interpret it in the context of the full clinical picture.
-"""
-)
+with tab1:
+    st.markdown(
+        "Use this tab to estimate the probability of **donor POD1 demise** "
+        "given pre- and post-laser Doppler values."
+    )
 
-tabs = st.tabs(
-    [
-        "🟥 Donor POD1 Demise",
-        "🟩 Donor Live Birth",
-        "🛠 Developer tools / smoke test",
-    ]
-)
-
-# -----------------------------------------------------------------------------
-# POD1 Donor Demise Tab
-# -----------------------------------------------------------------------------
-with tabs[0]:
-    st.header("Donor POD1 Demise — Enter Inputs")
-
-    pod1_values = render_feature_inputs(pod1_features, outcome_label="pod1")
+    X_pod1 = build_pod1_inputs()
 
     if st.button("Predict POD1 donor demise risk", type="primary"):
         try:
-            prob = predict_probability(pod1_model, pod1_features, pod1_values)
-            st.success(f"Predicted probability of donor POD1 demise: **{prob:.3f}**")
-        except Exception as e:
-            st.error(
-                "Error computing POD1 risk. Please double-check inputs or contact the developer."
+            prob = predict_probability(pod1_model, X_pod1)
+            st.success(
+                f"Predicted probability of **donor POD1 demise**: **{prob:.3f}**"
             )
-            st.exception(e)
-
-# -----------------------------------------------------------------------------
-# Live Birth Tab
-# -----------------------------------------------------------------------------
-with tabs[1]:
-    st.header("Donor Live Birth — Enter Inputs")
-
-    live_values = render_feature_inputs(live_features, outcome_label="live")
-
-    if st.button("Predict donor live birth probability", type="primary"):
-        try:
-            prob = predict_probability(live_model, live_features, live_values)
-            st.success(f"Predicted probability of donor live birth: **{prob:.3f}**")
         except Exception as e:
-            st.error(
-                "Error computing live birth probability. Please double-check inputs or contact the developer."
-            )
-            st.exception(e)
+            st.error(f"Error computing POD1 risk: {e}")
 
-# -----------------------------------------------------------------------------
-# Developer / Smoke test tab (optional)
-# -----------------------------------------------------------------------------
-with tabs[2]:
-    st.header("Developer tools / smoke test")
-
+with tab2:
     st.markdown(
-        """
-This section is mainly for debugging.  
-It feeds a simple synthetic case into each model to confirm end-to-end wiring.
-"""
+        "Use this tab to estimate the probability of **donor live birth** "
+        "based on pre-laser Doppler findings."
     )
 
-    if st.button("Run smoke test"):
+    X_live = build_live_inputs()
+
+    if st.button("Predict donor live-birth probability", type="primary"):
         try:
-            # "Neutral" patient: all defaults from metadata
-            neutral_pod1 = {f: FEATURE_META.get(f, {}).get("default", 0.0) for f in pod1_features}
-            neutral_live = {f: FEATURE_META.get(f, {}).get("default", 0.0) for f in live_features}
-
-            pod1_prob = predict_probability(pod1_model, pod1_features, neutral_pod1)
-            live_prob = predict_probability(live_model, live_features, neutral_live)
-
-            st.write(f"POD1 demise model – neutral case: **{pod1_prob:.3f}**")
-            st.write(f"Live birth model – neutral case: **{live_prob:.3f}**")
+            prob = predict_probability(live_model, X_live)
+            st.success(
+                f"Predicted probability of **donor live birth**: **{prob:.3f}**"
+            )
         except Exception as e:
-            st.error("Smoke test failed.")
-            st.exception(e)
+            st.error(f"Error computing live-birth probability: {e}")
 
 st.markdown(
     """
 ---
-**Prototype disclaimer:** These models are exploratory and derived from retrospective data.  
-They have **not** been prospectively validated and should not replace clinical judgment.
+**Disclaimer:** These models were trained on a single TTTS cohort and are
+for exploratory / research use only. They are **not validated** for bedside
+clinical decision-making.
 """
 )
