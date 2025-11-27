@@ -1,4 +1,4 @@
-]# app.py
+# app.py
 import json
 from pathlib import Path
 
