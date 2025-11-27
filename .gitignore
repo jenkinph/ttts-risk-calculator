@@ -1,0 +1,12 @@
+# Virtual environment
+.venv/
+
+# Bytecode
+__pycache__/
+*.pyc
+
+# Streamlit secrets
+.streamlit/
+
+# macOS system files
+.DS_Store
