@@ -74,61 +74,22 @@ tab_pod1, tab_live = st.tabs(
     ["🩸 Donor POD1 Demise", "👶 Donor Live Birth"]
 )
 
-# =============================
-# TAB 1 – POD1 DONOR DEMISE
-# =============================
-with tab_pod1:
-    st.header("POD1 Donor Demise — Enter Inputs")
+# --- POD1 Donor Demise Section ---
+st.header("POD1 Donor Demise — Enter Inputs")
 
-    bin_pod1, cont_pod1 = split_binary_continuous(pod1_features)
+pod1_inputs = {}
+st.subheader("Continuous Variables")
 
-    col_bin, col_cont = st.columns(2)
-
-    pod1_inputs = {}
-
-    with col_bin:
-        st.subheader("Ultrasound Doppler Findings (Binary)")
-        st.caption("0 = No / normal, 1 = Yes / abnormal")
-        for f in bin_pod1:
-            label = f.replace("_", " ")
-            pod1_inputs[f] = st.selectbox(
-                label,
-                options=[0, 1],
-                format_func=lambda x: "No (0)" if x == 0 else "Yes (1)",
-                key=f"pod1_bin_{f}",
-            )
-
-    with col_cont:
-        st.subheader("Continuous Variables")
-        for f in cont_pod1:
-            label = f.replace("_", " ")
-            pod1_inputs[f] = st.number_input(
-                label,
-                value=0.0,
-                step=0.1,
-                format="%.2f",
-                key=f"pod1_cont_{f}",
-            )
-
-    if st.button("Predict POD1 Donor Demise Risk", type="primary", key="btn_pod1"):
-        try:
-            prob = predict_prob(pod1_model, pod1_features, pod1_inputs)
-            st.subheader("Result")
-            st.metric(
-                "Estimated risk of POD1 donor demise",
-                f"{prob * 100:.1f} %",
-            )
-
-            # Optional simple risk stratification around the ~0.05 region
-            if prob < 0.03:
-                st.info("Model-estimated risk is **low** (<3%).")
-            elif prob < 0.10:
-                st.warning("Model-estimated risk is **intermediate** (3–10%).")
-            else:
-                st.error("Model-estimated risk is **high** (≥10%).")
-
-        except Exception as e:
-            st.error(f"Error computing POD1 risk: {e}")
+for f in pod1_features:
+    pod1_inputs[f] = st.number_input(f, value=0.0)
+    
+if st.button("Predict POD1 Donor Demise Risk"):
+    try:
+        X = np.array([[pod1_inputs[f] for f in pod1_features]])
+        prob = float(pod1_model.predict_proba(X)[0, 1])
+        st.success(f"POD1 donor demise predicted probability: {prob:.3f}")
+    except Exception as e:
+        st.error(f"Error computing POD1 risk: {str(e)}")
 
 # =============================
 # TAB 2 – DONOR LIVE BIRTH
